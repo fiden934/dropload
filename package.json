@@ -1,0 +1,8 @@
+{
+  "name": "dropload",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "yt-dlp-exec": "^1.0.2"
+  }
+}

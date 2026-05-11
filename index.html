@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DropLoad — Video Downloader</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0b;
+      --surface: #111114;
+      --surface2: #18181d;
+      --border: rgba(255,255,255,0.07);
+      --border-active: rgba(255,255,255,0.18);
+      --text: #f0f0f0;
+      --muted: #666;
+      --accent: #7c6dfa;
+      --accent-soft: rgba(124,109,250,0.12);
+      --accent-glow: rgba(124,109,250,0.25);
+      --success: #3ecf8e;
+      --success-soft: rgba(62,207,142,0.1);
+      --danger: #ff5f5f;
+      --mono: 'Space Mono', monospace;
+      --sans: 'DM Sans', sans-serif;
+    }
+
+    html, body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* --- GRID BG --- */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .wrap {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 640px;
+      padding: 4rem 1.5rem 6rem;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    /* --- HEADER --- */
+    header {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .logo {
+      font-family: var(--mono);
+      font-size: 1.1rem;
+      color: var(--accent);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .tagline {
+      font-size: 0.85rem;
+      color: var(--muted);
+      font-weight: 300;
+      letter-spacing: 0.02em;
+    }
+
+    /* --- PLATFORMS BADGE ROW --- */
+    .platforms {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.06em;
+      padding: 3px 8px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      color: var(--muted);
+      transition: color 0.2s, border-color 0.2s;
+    }
+
+    /* --- INPUT BOX --- */
+    .input-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      transition: border-color 0.2s;
+    }
+
+    .input-card:focus-within {
+      border-color: var(--accent);
+    }
+
+    .url-row {
+      display: flex;
+      gap: 0.6rem;
+      align-items: center;
+    }
+
+    .url-input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.65rem 0.9rem;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .url-input::placeholder { color: var(--muted); }
+    .url-input:focus { border-color: var(--accent); }
+
+    .quality-select {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.65rem 0.7rem;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .dl-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 0.7rem 1.2rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.15s;
+      white-space: nowrap;
+    }
+
+    .dl-btn:hover { opacity: 0.85; }
+    .dl-btn:active { transform: scale(0.97); }
+    .dl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .hint-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .hint {
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .dot.yt { background: #ff4e4e; }
+    .dot.other { background: var(--success); }
+
+    /* --- STATUS / RESULT --- */
+    #status-area { min-height: 0; }
+
+    .status-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+
+    .status-box.loading { border-color: var(--accent); }
+    .status-box.success { border-color: rgba(62,207,142,0.35); }
+    .status-box.error { border-color: rgba(255,95,95,0.35); }
+
+    .status-label {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .status-label.loading { color: var(--accent); }
+    .status-label.success { color: var(--success); }
+    .status-label.error { color: var(--danger); }
+
+    .spinner {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border: 2px solid var(--accent-glow);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Video info row */
+    .video-info {
+      display: flex;
+      gap: 0.85rem;
+      align-items: flex-start;
+    }
+
+    .thumb {
+      width: 96px;
+      height: 56px;
+      border-radius: 5px;
+      object-fit: cover;
+      flex-shrink: 0;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+    }
+
+    .thumb-placeholder {
+      width: 96px;
+      height: 56px;
+      border-radius: 5px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .thumb-placeholder svg { opacity: 0.3; }
+
+    .video-meta { display: flex; flex-direction: column; gap: 4px; }
+
+    .video-title {
+      font-size: 0.85rem;
+      font-weight: 500;
+      line-height: 1.4;
+      color: var(--text);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .video-sub {
+      font-size: 0.72rem;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    /* Download button in result */
+    .result-actions {
+      display: flex;
+      gap: 0.6rem;
+    }
+
+    .download-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--success-soft);
+      color: var(--success);
+      border: 1px solid rgba(62,207,142,0.25);
+      border-radius: 6px;
+      padding: 0.6rem 1rem;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+
+    .download-link:hover { background: rgba(62,207,142,0.18); }
+
+    .copy-url-btn {
+      background: var(--surface2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.6rem 0.85rem;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s;
+    }
+
+    .copy-url-btn:hover { color: var(--text); border-color: var(--border-active); }
+
+    .error-msg {
+      font-size: 0.8rem;
+      color: var(--danger);
+      line-height: 1.5;
+    }
+
+    /* --- HISTORY --- */
+    #history-section { display: none; flex-direction: column; gap: 0.75rem; }
+
+    .section-label {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .history-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+
+    .history-title {
+      font-size: 0.8rem;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+
+    .history-link {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      color: var(--accent);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    /* --- FOOTER --- */
+    footer {
+      font-size: 0.7rem;
+      color: var(--muted);
+      font-family: var(--mono);
+      text-align: center;
+      padding: 0 0 2rem;
+    }
+
+    /* Fade in */
+    .fade-in {
+      animation: fadeIn 0.25s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">DropLoad</div>
+    <div class="tagline">paste a link. get a file.</div>
+  </header>
+
+  <div class="platforms">
+    <span class="badge">YouTube</span>
+    <span class="badge">Instagram</span>
+    <span class="badge">Twitter / X</span>
+    <span class="badge">TikTok</span>
+    <span class="badge">Reddit</span>
+    <span class="badge">Vimeo</span>
+    <span class="badge">Pinterest</span>
+    <span class="badge">+ more</span>
+  </div>
+
+  <div class="input-card">
+    <div class="url-row">
+      <input
+        class="url-input"
+        id="url-input"
+        type="url"
+        placeholder="https://youtube.com/watch?v=..."
+        autocomplete="off"
+        spellcheck="false"
+      />
+    </div>
+    <div style="display:flex; gap:0.6rem; align-items:center;">
+      <select class="quality-select" id="quality-select">
+        <option value="max">Best quality</option>
+        <option value="1080">1080p</option>
+        <option value="720">720p</option>
+        <option value="480">480p</option>
+        <option value="360">360p</option>
+        <option value="audio">Audio only</option>
+      </select>
+      <button class="dl-btn" id="dl-btn" onclick="startDownload()">↓ Fetch</button>
+    </div>
+    <div class="hint-row">
+      <div class="dot yt"></div>
+      <span class="hint">YouTube → yt-dlp engine</span>
+      <div class="dot other" style="margin-left:0.6rem"></div>
+      <span class="hint">Other platforms → Cobalt</span>
+    </div>
+  </div>
+
+  <div id="status-area"></div>
+
+  <div id="history-section">
+    <div class="section-label">Recent</div>
+    <div id="history-list"></div>
+  </div>
+
+</div>
+
+<footer>dropload · client-side requests · no data stored</footer>
+
+<script>
+  const API = '/api/download';
+  let history = [];
+
+  const urlInput = document.getElementById('url-input');
+  const dlBtn = document.getElementById('dl-btn');
+  const statusArea = document.getElementById('status-area');
+  const historySection = document.getElementById('history-section');
+  const historyList = document.getElementById('history-list');
+
+  urlInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') startDownload();
+  });
+
+  function setStatus(html, type) {
+    statusArea.innerHTML = `<div class="status-box ${type} fade-in">${html}</div>`;
+  }
+
+  async function startDownload() {
+    const url = urlInput.value.trim();
+    if (!url) return;
+
+    let validUrl;
+    try { validUrl = new URL(url); } catch {
+      setStatus(`<div class="status-label error">Invalid URL</div><div class="error-msg">Please paste a valid video URL.</div>`, 'error');
+      return;
+    }
+
+    dlBtn.disabled = true;
+    setStatus(`
+      <div class="status-label loading"><span class="spinner"></span>Fetching download link...</div>
+      <div class="hint" style="color:var(--muted);font-size:0.75rem;">Contacting server — may take a few seconds</div>
+    `, 'loading');
+
+    try {
+      const res = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, quality: document.getElementById('quality-select').value })
+      });
+
+      const data = await res.json();
+
+      if (!data.success || !data.downloadUrl) {
+        throw new Error(data.error || 'Server returned no download link');
+      }
+
+      const info = data.info || {};
+      const title = info.title || 'video';
+      const thumb = info.thumbnail;
+      const uploader = info.uploader || '';
+      const source = info.source || '';
+      const duration = info.duration ? formatDuration(info.duration) : '';
+
+      const thumbHtml = thumb
+        ? `<img class="thumb" src="${thumb}" alt="thumbnail" onerror="this.style.display='none'" />`
+        : `<div class="thumb-placeholder">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+           </div>`;
+
+      setStatus(`
+        <div class="status-label success">✓ Ready to download</div>
+        <div class="video-info">
+          ${thumbHtml}
+          <div class="video-meta">
+            <div class="video-title">${escHtml(title)}</div>
+            ${uploader ? `<div class="video-sub">${escHtml(uploader)}${duration ? ' · ' + duration : ''}</div>` : ''}
+            ${source ? `<div class="video-sub" style="color:#444;margin-top:2px">${escHtml(source)}</div>` : ''}
+          </div>
+        </div>
+        <div class="result-actions">
+          <a class="download-link" href="${data.downloadUrl}" download="${escAttr(title)}.mp4" target="_blank" rel="noopener">
+            ↓ Download
+          </a>
+          <button class="copy-url-btn" onclick="copyUrl('${escAttr(data.downloadUrl)}', this)">Copy URL</button>
+        </div>
+      `, 'success');
+
+      addHistory(title, data.downloadUrl);
+
+    } catch (err) {
+      setStatus(`
+        <div class="status-label error">✗ Failed</div>
+        <div class="error-msg">${escHtml(err.message)}</div>
+        <div class="hint" style="font-size:0.72rem;color:var(--muted);margin-top:0.25rem">
+          Try a different quality or check that the URL is publicly accessible.
+        </div>
+      `, 'error');
+    } finally {
+      dlBtn.disabled = false;
+    }
+  }
+
+  function copyUrl(url, btn) {
+    navigator.clipboard.writeText(url).then(() => {
+      const prev = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = prev, 1800);
+    });
+  }
+
+  function addHistory(title, url) {
+    history.unshift({ title, url });
+    if (history.length > 5) history.pop();
+    renderHistory();
+  }
+
+  function renderHistory() {
+    if (history.length === 0) { historySection.style.display = 'none'; return; }
+    historySection.style.display = 'flex';
+    historyList.innerHTML = history.map(h => `
+      <div class="history-item">
+        <div class="history-title">${escHtml(h.title)}</div>
+        <a class="history-link" href="${h.url}" target="_blank" rel="noopener">↓ dl</a>
+      </div>
+    `).join('');
+  }
+
+  function formatDuration(secs) {
+    const m = Math.floor(secs / 60), s = secs % 60;
+    return `${m}:${s.toString().padStart(2,'0')}`;
+  }
+
+  function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function escAttr(str) {
+    return String(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+</script>
+</body>
+</html>
