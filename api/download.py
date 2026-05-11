@@ -1,10 +1,18 @@
 import json
 import re
 import urllib.request
-import urllib.error
 from http.server import BaseHTTPRequestHandler
-import yt_dlp
 
+# Invidious public instances for YouTube
+INVIDIOUS_INSTANCES = [
+    "https://inv.nadeko.net",
+    "https://invidious.fdn.fr",
+    "https://yt.artemislena.eu",
+    "https://invidious.privacyredirect.com",
+    "https://invidious.nerdvpn.de",
+]
+
+# Cobalt instances for non-YouTube platforms
 COBALT_INSTANCES = [
     "https://cobalt.api.timelessnesses.me",
     "https://cobalt.synzr.space",
@@ -12,48 +20,110 @@ COBALT_INSTANCES = [
     "https://cobalt.ggtyler.dev",
 ]
 
-QUALITY_FORMATS = {
-    "max":   "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-    "1080":  "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best",
-    "720":   "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best",
-    "480":   "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best",
-    "360":   "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360][ext=mp4]/best",
-    "audio": "bestaudio[ext=m4a]/bestaudio",
+QUALITY_MAP = {
+    "max":   9999,
+    "1080":  1080,
+    "720":   720,
+    "480":   480,
+    "360":   360,
+    "audio": 0,
 }
 
 def is_youtube(url):
     return bool(re.search(r"youtube\.com|youtu\.be", url))
 
-def get_yt_dlp_result(url, quality="max"):
-    fmt = QUALITY_FORMATS.get(quality, QUALITY_FORMATS["max"])
-    ydl_opts = {
-        "format": fmt,
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": True,
-        "skip_download": True,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+def extract_video_id(url):
+    patterns = [
+        r"youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})",
+        r"youtu\.be/([a-zA-Z0-9_-]{11})",
+        r"youtube\.com/shorts/([a-zA-Z0-9_-]{11})",
+        r"youtube\.com/embed/([a-zA-Z0-9_-]{11})",
+    ]
+    for p in patterns:
+        m = re.search(p, url)
+        if m:
+            return m.group(1)
+    return None
 
-    # Get the direct URL from the best format
-    download_url = None
-    if "url" in info:
-        download_url = info["url"]
-    elif "formats" in info:
-        for f in reversed(info["formats"]):
-            if f.get("url"):
-                download_url = f["url"]
-                break
+def get_invidious_result(video_id, quality="max"):
+    max_height = QUALITY_MAP.get(quality, 9999)
+    audio_only = (quality == "audio")
 
-    return {
-        "downloadUrl": download_url,
-        "title": info.get("title", "video"),
-        "thumbnail": info.get("thumbnail"),
-        "duration": info.get("duration"),
-        "uploader": info.get("uploader") or info.get("channel"),
-        "source": "yt-dlp",
-    }
+    for instance in INVIDIOUS_INSTANCES:
+        try:
+            api_url = f"{instance}/api/v1/videos/{video_id}?fields=title,author,lengthSeconds,videoThumbnails,adaptiveFormats,formatStreams"
+            req = urllib.request.Request(
+                api_url,
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            with urllib.request.urlopen(req, timeout=7) as resp:
+                data = json.loads(resp.read())
+
+            title = data.get("title", "video")
+            author = data.get("author", "")
+            duration = data.get("lengthSeconds")
+            thumbnails = data.get("videoThumbnails", [])
+            thumbnail = next((t["url"] for t in thumbnails if t.get("quality") == "high"), None)
+            if thumbnail and thumbnail.startswith("/"):
+                thumbnail = instance + thumbnail
+
+            if audio_only:
+                # Pick best audio format
+                audio_formats = [
+                    f for f in data.get("adaptiveFormats", [])
+                    if f.get("type", "").startswith("audio")
+                ]
+                if audio_formats:
+                    best = max(audio_formats, key=lambda f: f.get("bitrate", 0))
+                    dl_url = best.get("url")
+                    if dl_url:
+                        return {
+                            "downloadUrl": dl_url,
+                            "title": title,
+                            "thumbnail": thumbnail,
+                            "duration": duration,
+                            "uploader": author,
+                            "source": f"invidious ({instance})",
+                        }
+            else:
+                # Try combined formatStreams first (video+audio in one)
+                combined = [
+                    f for f in data.get("formatStreams", [])
+                    if f.get("url") and int(f.get("resolution", "0p").replace("p","") or 0) <= max_height
+                ]
+                if combined:
+                    best = max(combined, key=lambda f: int(f.get("resolution", "0p").replace("p","") or 0))
+                    return {
+                        "downloadUrl": best["url"],
+                        "title": title,
+                        "thumbnail": thumbnail,
+                        "duration": duration,
+                        "uploader": author,
+                        "source": f"invidious ({instance})",
+                    }
+
+                # Fall back to adaptive video formats
+                video_formats = [
+                    f for f in data.get("adaptiveFormats", [])
+                    if f.get("type", "").startswith("video/mp4")
+                    and f.get("url")
+                    and int(f.get("resolution", "0p").replace("p","") or 0) <= max_height
+                ]
+                if video_formats:
+                    best = max(video_formats, key=lambda f: int(f.get("resolution", "0p").replace("p","") or 0))
+                    return {
+                        "downloadUrl": best["url"],
+                        "title": title,
+                        "thumbnail": thumbnail,
+                        "duration": duration,
+                        "uploader": author,
+                        "source": f"invidious ({instance})",
+                    }
+
+        except Exception:
+            continue
+
+    raise Exception("All Invidious instances failed. Try again in a moment.")
 
 def get_cobalt_url(url):
     for instance in COBALT_INSTANCES:
@@ -116,19 +186,18 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             if is_youtube(url):
-                result = get_yt_dlp_result(url, quality)
-                if not result.get("downloadUrl"):
-                    raise Exception("yt-dlp returned no download URL")
+                video_id = extract_video_id(url)
+                if not video_id:
+                    raise Exception("Could not extract YouTube video ID from URL")
+                result = get_invidious_result(video_id, quality)
                 self._respond(200, {"success": True, **result})
             else:
                 result = get_cobalt_url(url)
                 self._respond(200, {
                     "success": True,
                     "downloadUrl": result["downloadUrl"],
-                    "info": {
-                        "title": "video",
-                        "source": f"cobalt ({result['instance']})",
-                    },
+                    "title": "video",
+                    "source": f"cobalt ({result['instance']})",
                 })
 
         except Exception as e:
@@ -144,4 +213,4 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, *args):
-        pass  # Suppress default access logs
+        pass
